@@ -1,3 +1,4 @@
+// server side code
 /**
  * State machine like. Client messages change state and initiate a timed callback which emits a message to back to client.
  */
@@ -11,10 +12,12 @@ function rulesEngine(room, messageDispatcher) {
     this.speakerQueue = [];
     this.messageDispatcher = messageDispatcher;
     this.discussionBeginning = null;
+    this.heartbeatTimer = null;
     this.discussionOverActionId = null;
     this.nextTimedActionId = null;
     this.nextTimedActionTime = null;
     this.activeSpeaker = null;
+    this.lastSpeaker = null;
     this.discussionRepeating = false;
     this.discussionEnding = false;
     this.callback = null;
@@ -40,18 +43,22 @@ rulesEngine.prototype.stopListening = function() {
 
 rulesEngine.prototype.receiveClientMessage = function(user, data) {
     var type = data.type;
+    this.log("flowdebug: RulesEngine received client " +
+		 user.name + " message " + type);
     var shouldReprocess = false;
-    if(type == 'requestToSpeak') {
+    if (type == 'beginDiscussion') {
+        this.reprocess(true);  // force reprocess
+    } else if (type == 'requestToSpeak') {
         shouldReprocess = this.doRequestToSpeak(user, data);
-    } else if(type == 'relinquishTurn') {
+    } else if (type == 'relinquishTurn') {
         shouldReprocess = this.doRelinquishTurn(user, data);
-    } else if(type == 'repeatDiscussion') {
+    } else if (type == 'repeatDiscussion') {
         shouldReprocess = this.doRepeatDiscussion(user, data);
-    } else if(type == 'discussionOver') {
+    } else if (type == 'discussionOver') {
         shouldReprocess = this.doDiscussionOver(user, data);
     }
     if(shouldReprocess) {
-        this.reprocess();
+        this.reprocess(null);
     }
 }
 
@@ -74,6 +81,7 @@ rulesEngine.prototype.doRequestToSpeak = function(user, data) {
 }
 
 rulesEngine.prototype.doDiscussionOver = function(user, data) {
+    this.log("flowdebug: discussion over");
     this.discussionEnding = true;
     return true;
 }
@@ -84,6 +92,7 @@ rulesEngine.prototype.doRepeatDiscussion = function(user, data) {
     this.nextTimedActionId = null;
     this.nextTimedActionTime = null;
     this.activeSpeaker = null;
+    this.lastSpeaker = null;
     this.discussionRepeating = true;
     return true;
 }
@@ -92,9 +101,10 @@ rulesEngine.prototype.doRelinquishTurn = function(user, data) {
     // interrupt user if speaking
     if(this.activeSpeaker && (user.name == this.activeSpeaker.name)) {
         this.updateActiveSpeaker(new Date().getTime());
+        this.lastSpeaker = this.activeSpeaker;
         this.activeSpeaker = null;
     }
-    // remove use user from queue
+    // remove user from queue
     var length = this.speakerQueue.length;
     for(var i = 0; i < length; i++) {
         var currentUser = this.speakerQueue[i];
@@ -105,21 +115,45 @@ rulesEngine.prototype.doRelinquishTurn = function(user, data) {
     }
 }
 
-rulesEngine.prototype.reprocess = function() {
+rulesEngine.prototype.reprocess = function(force) {
     var now = new Date().getTime();
     // get possible message events and set the closest as a timeout
     var nextSpeakerAction = this.getNextSpeaker();
     // enforce discussion length if it hasn't been done already
     var context = this;
-    if(nextSpeakerAction && !this.discussionOverActionId) {
+    var count = 0;
+    this.log("force discussion start: " + force);
+    if (force || (nextSpeakerAction && !this.discussionOverActionId)) {
+        /* timer starts automatically after intro (sax solo) plays, but
+         * for legacy purposes could also start if an impatient speaker
+         * pushes "My Turn" before it completes. whichever happens first
+         * initializes the discussion; the following action is ignored
+         */
+        if (this.discussionBeginning) {  // already begun
+            this.log("flowdebug: discussion already started at " +
+                     this.discussionBeginning);
+            return;
+        }
+        this.log("flowdebug: discussion beginning");
         this.discussionBeginning = now;
-        this.discussionOverActionId = setTimeout(function() {
-            context.doPersistUsers.call(context);
-        },
-        this.discussionLength);
+        this.heartbeatTimer = setInterval(function() {
+            console.log("sending heartbeat to room at count " + count);
+            context.messageDispatcher.sendMessageToRoom(context.room, {
+                messageType: 'heartbeat',
+                count: count
+            });
+            count++;
+        }, 1000);
+        this.discussionOverActionId = setTimeout(
+            function() {
+                context.doPersistUsers.call(context);
+            },
+            this.discussionLength);
     }
     // check for phantom groups (e.g. time was over but no user responded to repeat/terminate dialog)
     var cleanupNecessary = this.isInconsistent();
+    this.log("flowdebug: cleanup necessary: " + cleanupNecessary);
+    this.log("flowdebug: discussion ending: " + this.discussionEnding);
     var nextAction = cleanupNecessary || this.discussionEnding ? this.getEndingDiscussion() :
         this.discussionRepeating ? this.getRepeatingDiscussion() : 
             nextSpeakerAction ? nextSpeakerAction : this.getWaitingForSpeaker();
@@ -200,6 +234,7 @@ rulesEngine.prototype.doRepeatingDiscussion = function() {
 }
 
 rulesEngine.prototype.doEndingDiscussion = function() {
+    this.log("flowdebug: doEndingDiscussion()");
     this.messageDispatcher.emit('discussionOverInServer', this.room);
     this.messageDispatcher.sendMessageToRoom(this.room, {
         messageType: 'discussionOver'
@@ -211,12 +246,15 @@ rulesEngine.prototype.doWaitingForSpeaker = function() {
     var now = new Date().getTime();
     this.messageDispatcher.sendMessageToRoom(this.room, {
         messageType: 'waitingForNewSpeaker',
+        lastSpeaker: this.lastSpeaker,
         timeLeft: this.getTimeLeft(now)
     });
 }
 
 rulesEngine.prototype.doPersistUsers = function() {
     // discussion is over, make sure no further actions are performed
+    this.log("flowdebug: doPersistUsers()");
+    this.heartbeatTimer = clearInterval(this.heartbeatTimer);
     clearTimeout(this.nextTimedActionId);
     clearTimeout(this.discussionOverActionId);
     this.updateActiveSpeaker(new Date().getTime());
@@ -226,7 +264,7 @@ rulesEngine.prototype.doPersistUsers = function() {
     this.messageDispatcher.emit('persistRoomData', this.room);
     // schedule cleanup in 10 minutes in case persist doesn't yield repeat or over messages
     var context = this;
-    setTimeout(function(){context.reprocess()}, 10*60*1000);
+    setTimeout(function(){context.reprocess(null)}, 10*60*1000);
 }
 
 rulesEngine.prototype.updateActiveSpeaker = function(currentTime) {
@@ -267,10 +305,13 @@ rulesEngine.prototype.createTimedAction = function(actionFunction, params, noRep
         context.nextTimedActionId = null;
         context.nextTimedActionTime = null;
         if (!noReprocess) {
-            context.reprocess();         
+            context.reprocess(null);
         }
     });
     return nextAction;
 }
 
 module.exports = rulesEngine;
+/*
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
+*/

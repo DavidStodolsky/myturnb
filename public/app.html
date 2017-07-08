@@ -2,6 +2,8 @@
 <html manifest="" lang="en-US">
 <head>
     <meta charset="UTF-8">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>My Turn</title>
     <style type="text/css">
          /**
@@ -52,7 +54,7 @@
             opacity: 0.8;
         }
 
-        @-webkit-keyframes appLoadingIndicator{
+        @-webkit-keyframes appLoadingIndicator {
             0% {
                 opacity: 0.8
             }
@@ -69,8 +71,7 @@
     <link rel="stylesheet" href="resources/css/app.css" type="text/css">
 
     <script type="text/javascript" src="sdk/sencha-touch.js"></script>
-	<script type="text/javascript" src="cordova.js"></script>
-	<script type="text/javascript" src="library/socket.io.js"></script>
+    <script type="text/javascript" src="/api/socket.io/socket.io.js"></script>
     <script type="text/javascript" src="library/ui.js"></script>
     <script type="text/javascript" src="app.js"></script>
 </head>

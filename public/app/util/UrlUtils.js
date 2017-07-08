@@ -1,8 +1,11 @@
 Ext.define('testing.util.UrlUtils', {
+	/* I don't know the purpose of this routine, but it was hard-coding
+	 * the URL to http://myturn.mobi/ and this was causing problems
+	 * with my testing on other servers. So I changed it. Hopefully
+	 * I haven't broken some needed functionality -- jc@unternet.net */
 	singleton: true,
 	getBaseUrl: function() {
-		var isNative = EnvUtils.isNative();
-		var url = isNative || (location.href.indexOf('http://localhost/') == -1) ? 'http://myturn.mobi/' : 'http://localhost:3000/';
-		return url;
+		return (location.origin ||
+			location.protocol + "//" + location.host) + "/";
 	}
 });

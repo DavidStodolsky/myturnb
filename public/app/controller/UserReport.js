@@ -1,4 +1,4 @@
-
+// client side code
 Ext.define('testing.controller.UserReport', {
     extend: 'Ext.app.Controller',
     requires: ['Ext.MessageBox'],
@@ -15,6 +15,7 @@ Ext.define('testing.controller.UserReport', {
     messageBox: null,
 
     doUsersSaved: function(dataContainer) {
+        console.log("flowdebug: doUsersSaved()");
         var userReportData = this.getUserReportData();
         var store = userReportData.getStore();
 
@@ -40,6 +41,7 @@ Ext.define('testing.controller.UserReport', {
     },
 
     clearMessageBox: function() {
+        console.log("flowdebug: clearMessageBox()");
         if(this.messageBox) {
             this.messageBox.hide();
             this.messageBox.setModal(false);

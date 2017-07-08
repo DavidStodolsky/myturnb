@@ -64,12 +64,12 @@ Ext.define("testing.view.Login", {
                             {
                                 xtype: 'button',
                                 action: 'loginEvent',
-                                text: 'Login'
+                                text: 'Join'
                             },
                             {
                                 xtype: 'button',
                                 action: 'logoutEvent',
-                                text: 'Logout'
+                                text: 'Leave'
                             },
                             /*
                             {

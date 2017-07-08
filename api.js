@@ -1,8 +1,4 @@
-
-/**
- * Module dependencies.
- */
-
+// server side code
 var express = require('express'),
     routes = require('./routes'),
     user = require('./api/models/user'),
@@ -19,7 +15,7 @@ var getLocalNetworkIP = (function () {
     var ignoreRE = /^(127\.0\.0\.1|::1|fe80(:1)?::1(%.*)?)$/i;
 
     var exec = require('child_process').exec;
-    var cached;    
+    var cached;
     var command;
     var filterRE;
 
@@ -96,10 +92,6 @@ app.configure('development', function(){
   app.use(express.errorHandler({ dumpExceptions: true, showStack: true }));
 });
 
-app.get('/data/readme.json', function(req, res) {
-    res.sendfile('/Readme.txt', {root: __dirname});
-});
-
 app.configure('production', function(){
   app.use(express.errorHandler());
 });
@@ -111,8 +103,23 @@ app.configure('production', function(){
 var port = 80;
 
 if(process.argv.indexOf('--local') != -1){
-    port = 3000;
+    console.log("setting server port to " + process.env.SERVER_PORT);
+    port = parseInt(process.env.SERVER_PORT);
 }
+
+/* exit next Sunday morning or whenever environment variables specify */
+/* make sure the systemd unit file specifies `Restart = always` */
+var restartHour = parseInt(process.env.WEEKLY_RESTART_UTC_HOUR);
+var restartDay = parseInt(process.env.WEEKLY_RESTART_UTC_DAY);
+var restartTime = new Date();
+restartTime.setUTCDate(restartTime.getUTCDate() +
+    (((7 + restartDay) % 7) || 7)); // add from 1 to 7 days
+restartTime.setUTCHours(restartHour);
+restartTime.setUTCMinutes(0);
+restartTime.setUTCSeconds(0);
+restartTime.setUTCMilliseconds(0);
+console.log("restarting in " + (restartTime - new Date()) + " milliseconds");
+setTimeout(process.exit, restartTime - new Date());
 
 /*getLocalNetworkIP(function(error, address){
     if(!error && address){
@@ -125,9 +132,12 @@ if(process.argv.indexOf('--local') != -1){
     }
 });*/
 
+if (!(port == 80 || port >= 3000 || port <= 3004)) {
+    console.error("Bad port number " + port + "! Environment: " +
+        JSON.stringify(process.env));
+}
 app.listen(port);
 console.log("MyTurn API started on port " + app.address().port);
-
 
 var io = require('socket.io').listen(app);
 io.configure(function() {
@@ -188,7 +198,9 @@ function login(socket, data) {
         rulesEngineMap[room] = newRulesEngine;
     }
     socket.join(room);
-    socket.emit('userAccepted');
+    socket.emit("userAccepted");
+    if (length == 0) socket.emit("sessionStarted");
+    else console.log("session was already begun by another user");
 }
 
 function getRoomObject(room) {
@@ -250,6 +262,11 @@ function persistRoomData(room) {
         var userObj = db.load(userIds[i]);
         roomObj.users.push(userObj);
     }
+    messageDispatcherInstance.sendMessageToRoom(room, {
+        messageType: 'usersSaved',
+        data: roomObj.users
+    });
+    /* commenting out nonexistent method call
     db.savePersistent('rooms', roomObj, function(err) {
         var msg = err ? ('error persisting users: ' + err) : 'users persisted';
         console.log(msg);
@@ -260,6 +277,7 @@ function persistRoomData(room) {
             });
         }
     });
+    */
 }
 
 function cleanRoomData(room) {
@@ -274,3 +292,6 @@ function cleanRoomData(room) {
     // clean up db
     removeRoomObject(room);
 }
+/*
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
+*/
